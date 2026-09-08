@@ -102,7 +102,7 @@ Do not enable secure cookies for plain HTTP local development. Configure trusted
 
 Set `TEMPO_SMTP_HOST`, `TEMPO_SMTP_PORT` (default 587), `TEMPO_MAIL_FROM`, and `TEMPO_PUBLIC_URL`. If the SMTP server requires authentication, also set `TEMPO_SMTP_USER` and `TEMPO_SMTP_PASSWORD`. SMTP requires STARTTLS. The backend loads `backend/.env` automatically without overriding existing process environment variables. Configure production values in your host's environment settings.
 
-Reset requests return the same message for known and unknown addresses. Links expire in 30 minutes, are single-use, and never appear in API responses or application logs. Tokens are carried in a URL fragment to keep them out of server request logs. The UI explains when email is not configured. A delivery error is logged without personal data; the user can request another link. No real SMTP service is configured in this checkout; delivery is mocked in tests.
+Reset requests return the same message for known and unknown addresses. Links expire in 30 minutes, are single-use, and never appear in API responses or application logs. Tokens are carried in a URL fragment to keep them out of server request logs. The UI explains when email is not configured. A delivery error is logged without personal data; the user can request another link. Automated tests mock email delivery and do not send real messages.
 
 ### Existing local data
 
@@ -195,3 +195,15 @@ Neon database, run `.venv/bin/python test_neon.py` from `backend`. This creates 
 uniquely named temporary schema, runs the API suite there (excluding the SQLite
 legacy-file migration), then drops only that test schema in a finally block.
 It requires schema-creation permission and never truncates the public app tables.
+
+
+### Shared Resend configuration
+
+Tempo uses the same Resend account and sender as the portfolio. The non-secret
+SMTP values are in `backend/.env.example`. In the Tempo Vercel project's
+Production environment, set `TEMPO_SMTP_HOST=smtp.resend.com`,
+`TEMPO_SMTP_PORT=587`, `TEMPO_SMTP_USER=resend`, and `TEMPO_MAIL_FROM` to the
+portfolio's `RESEND_FROM_EMAIL` value. Set `TEMPO_SMTP_PASSWORD` to the portfolio's
+`RESEND_API_KEY` value privately in Vercel. Keep `TEMPO_PUBLIC_URL` set to Tempo's
+own production URL so password-reset links open Tempo. Redeploy after saving.
+The local `.env` and credentials are excluded from Git and are not uploaded by a push.
