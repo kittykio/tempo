@@ -22,7 +22,7 @@ A solo focus workspace that brings a Kanban board and Pomodoro timer together.
 
 ## Stack
 
-React, TypeScript, and Vite on the frontend. FastAPI, Pydantic, and SQLite on the backend. SQLite keeps the first version easy to run without a separate database service. The backend owns task and session data; browser storage holds only the local timer.
+React, TypeScript, and Vite on the frontend. FastAPI and Pydantic on the backend, with PostgreSQL for hosting and SQLite for local development. SQLite keeps the first version easy to run without a separate database service. The backend owns account data; browser storage holds the local timer and unsaved note drafts.
 
 ## Run locally
 
@@ -85,7 +85,7 @@ docker run --rm -p 127.0.0.1:8000:8000 -v tempo-data:/data tempo
 
 ## Accounts and deployment settings
 
-Accounts use salted scrypt password hashes and opaque server-side sessions in HttpOnly, SameSite cookies. Session and reset secrets are stored as hashes. Sessions expire after 14 days; logout revokes the current session, and password reset revokes all sessions. Passwords require 15–128 characters. Authentication attempts are rate limited in SQLite by client IP and, for login/reset, by email.
+Accounts use salted scrypt password hashes and opaque server-side sessions in HttpOnly, SameSite cookies. Session and reset secrets are stored as hashes. Sessions expire after 14 days; logout revokes the current session, and password reset revokes all sessions. Passwords require 15–128 characters. Authentication attempts are rate limited in the database by client IP and, for login/reset, by email.
 
 The frontend sends a custom request header for CSRF protection. All task and focus-session queries enforce the signed-in owner. Each browser timer is stored under that user's ID; changing accounts in another tab clears the old board, and an identity header prevents stale tabs from writing into a newly signed-in account.
 
@@ -100,7 +100,7 @@ Do not enable secure cookies for plain HTTP local development. Configure trusted
 
 ### Password reset email
 
-Set `TEMPO_SMTP_HOST`, `TEMPO_SMTP_PORT` (default 587), `TEMPO_MAIL_FROM`, and `TEMPO_PUBLIC_URL`. If the SMTP server requires authentication, also set `TEMPO_SMTP_USER` and `TEMPO_SMTP_PASSWORD`. SMTP requires STARTTLS. Environment files are examples; the app does not load `.env` automatically. Export variables before starting the server or configure them in your host's environment settings.
+Set `TEMPO_SMTP_HOST`, `TEMPO_SMTP_PORT` (default 587), `TEMPO_MAIL_FROM`, and `TEMPO_PUBLIC_URL`. If the SMTP server requires authentication, also set `TEMPO_SMTP_USER` and `TEMPO_SMTP_PASSWORD`. SMTP requires STARTTLS. The backend loads `backend/.env` automatically without overriding existing process environment variables. Configure production values in your host's environment settings.
 
 Reset requests return the same message for known and unknown addresses. Links expire in 30 minutes, are single-use, and never appear in API responses or application logs. Tokens are carried in a URL fragment to keep them out of server request logs. The UI explains when email is not configured. A delivery error is logged without personal data; the user can request another link. No real SMTP service is configured in this checkout; delivery is mocked in tests.
 
@@ -154,3 +154,44 @@ The default app appearance is **Tempo default**: neutral gray backgrounds, white
 - **Subtasks:** Expand **Subtasks** on a task card to add, check off, rename (saved on leaving the field), or delete small steps. Up to 100 subtasks per task. Completing subtasks never changes the parent's status. Deleting the parent deletes its subtasks. Every endpoint checks task ownership.
 
 Schema changes are additive: goal tracking fields, alert preferences, task completion timestamps, and a subtasks table. No account data is reset. New automated tests cover timezone/date boundaries, goal over-completion, check-in undo, review isolation, subtask permissions, alert opt-in/deduplication, and UI workflows. Tests mock sound and notifications; they do not trigger real desktop alerts.
+
+
+## Neon / PostgreSQL
+
+Install the updated `backend/requirements.lock.txt`, then set `DATABASE_URL` in
+`backend/.env` or your hosting environment to the Neon PostgreSQL connection URL.
+Use Neon's pooled URL with its SSL parameters intact. `.env` is ignored by Git.
+The backend now loads this file automatically; explicit environment variables win.
+
+When `DATABASE_URL` is set, all accounts, tasks, sessions, notes, goals, habits,
+preferences, and subtasks use PostgreSQL. With no URL (or an explicitly empty
+`DATABASE_URL`), local development uses the existing SQLite file. On Vercel a
+missing URL fails explicitly, rather than storing accounts on temporary disk.
+A malformed or unreachable PostgreSQL URL never silently falls back to SQLite.
+
+Tables and indexes are created additively on the first database access per
+process. Concurrent initializations use a PostgreSQL transaction advisory lock.
+Existing read/modify/write workflows also use a transaction advisory lock to
+preserve session deduplication, note conflict detection, and auth consistency.
+This conservative shared lock serializes those transactions; higher-traffic
+installations should move to scoped locks or atomic statements.
+Connections commit on success, roll back on exceptions, and close afterward.
+
+The Neon database starts with its own accounts. Existing local SQLite data is
+preserved but is **not automatically uploaded**. Switching databases requires
+signing in again or creating an account in the selected database.
+
+For HTTPS hosting set `TEMPO_COOKIE_SECURE=true`, `TEMPO_PUBLIC_URL` to your
+actual app URL, and `TEMPO_ALLOWED_ORIGINS` to that exact origin without a trailing
+slash. SMTP remains optional for password-reset email. The repository includes a root `app.py` entry point and `vercel.json`
+that builds the React frontend and selects Singapore (`sin1`). Import the
+repository root into Vercel using the FastAPI preset. API routes and the built
+frontend share the same origin. Set the four production environment variables
+above (including `DATABASE_URL`) in Vercel; the ignored local `.env` is not uploaded.
+The configuration has been checked locally; a live Vercel deployment is still required.
+
+Run the standard SQLite suite with `.venv/bin/python -m pytest -q`. To verify a
+Neon database, run `.venv/bin/python test_neon.py` from `backend`. This creates a
+uniquely named temporary schema, runs the API suite there (excluding the SQLite
+legacy-file migration), then drops only that test schema in a finally block.
+It requires schema-creation permission and never truncates the public app tables.

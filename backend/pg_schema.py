@@ -1,22 +1,7 @@
-"""Select PostgreSQL via DATABASE_URL, or SQLite for local development."""
-import os
-import sqlite3
-from contextlib import contextmanager, closing
-from pathlib import Path
+"""Idempotent PostgreSQL schema; existing account data is retained."""
 
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).with_name('.env'))
-
-DB_PATH = Path(os.environ.get('TEMPO_DB', Path(__file__).with_name('tempo.db')))
-
-@contextmanager
-def sqlite_database():
-    with closing(sqlite3.connect(DB_PATH, timeout=15)) as conn, conn:
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA foreign_keys = ON')
-        conn.executescript('''
-        CREATE TABLE IF NOT EXISTS users (
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
           id TEXT PRIMARY KEY, email TEXT UNIQUE, name TEXT NOT NULL,
           password_hash TEXT, demo_expires INTEGER, created_at TEXT NOT NULL
         );
@@ -40,7 +25,7 @@ def sqlite_database():
         );
         CREATE TABLE IF NOT EXISTS goals (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          title TEXT NOT NULL, period TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL,
+          title TEXT NOT NULL, period TEXT NOT NULL, start TEXT NOT NULL, "end" TEXT NOT NULL,
           target INTEGER NOT NULL, progress INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS habits (
@@ -66,33 +51,15 @@ def sqlite_database():
         CREATE TABLE IF NOT EXISTS rate_limits (
           key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL
         );
-        ''')
-        conn.execute('BEGIN IMMEDIATE')
-        # Old rows stay unclaimed, never visible through an account's API.
-        for table in ('tasks', 'sessions'):
-            if 'user_id' not in {r['name'] for r in conn.execute(f'PRAGMA table_info({table})')}:
-                conn.execute(f'ALTER TABLE {table} ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE')
-            conn.execute(f'CREATE INDEX IF NOT EXISTS {table}_user ON {table}(user_id)')
-        additions={'tasks':{'completed_at':'TEXT'},'goals':{'source':"TEXT NOT NULL DEFAULT 'manual'",'habit_id':'TEXT','timezone':"TEXT NOT NULL DEFAULT 'UTC'"},'preferences':{'sound':'INTEGER NOT NULL DEFAULT 0','notifications':'INTEGER NOT NULL DEFAULT 0'}}
-        for table,columns in additions.items():
-            existing={r['name'] for r in conn.execute(f'PRAGMA table_info({table})')}
-            for name,definition in columns.items():
-                if name not in existing:conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
-        conn.commit()
-        yield conn
-
-
-@contextmanager
-def database():
-    url = os.environ.get('DATABASE_URL', '').strip()
-    if url:
-        if not url.startswith(('postgresql://', 'postgres://')):
-            raise RuntimeError('DATABASE_URL must be a PostgreSQL connection URL')
-        from postgres import postgres_database
-        with postgres_database(url) as conn:
-            yield conn
-    else:
-        if os.environ.get('VERCEL'):
-            raise RuntimeError('Set DATABASE_URL to a persistent PostgreSQL database on Vercel')
-        with sqlite_database() as conn:
-            yield conn
+        
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS habit_id TEXT;
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'UTC';
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS sound INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS notifications INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE habits ADD COLUMN IF NOT EXISTS _tempo_order BIGSERIAL;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS _tempo_order BIGSERIAL;
+CREATE INDEX IF NOT EXISTS tasks_user ON tasks(user_id);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+"""
