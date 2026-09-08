@@ -86,7 +86,7 @@ a {
 }
 .brand span {
   font-size: 24px;
-  color: var(--theme-muted, #8a9a71);
+  color: var(--theme-muted, #595959);
   margin-left: 2px;
 }
 .rail-button {
@@ -1247,7 +1247,7 @@ footer span:last-child {
   letter-spacing: -2px;
 }
 .auth-brand span {
-  color: var(--theme-muted, #9eae89);
+  color: var(--theme-muted, #595959);
   margin-left: 4px;
 }
 .auth-story h1 {
