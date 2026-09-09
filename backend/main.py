@@ -33,7 +33,10 @@ async def protect_requests(request: Request, call_next):
         response.headers['Cache-Control'] = 'no-store'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
+    # Allow the portfolio thumbnail while blocking unrelated embedding sites.
+    response.headers['Content-Security-Policy'] = (
+        "frame-ancestors 'self' https://kittykio.com https://www.kittykio.com"
+    )
     return response
 
 class TaskInput(BaseModel):

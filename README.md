@@ -207,3 +207,14 @@ portfolio's `RESEND_FROM_EMAIL` value. Set `TEMPO_SMTP_PASSWORD` to the portfoli
 `RESEND_API_KEY` value privately in Vercel. Keep `TEMPO_PUBLIC_URL` set to Tempo's
 own production URL so password-reset links open Tempo. Redeploy after saving.
 The local `.env` and credentials are excluded from Git and are not uploaded by a push.
+
+## Portfolio embedding
+
+Tempo allows iframe previews from `https://kittykio.com`,
+`https://www.kittykio.com`, and its own origin using the HTTP
+`Content-Security-Policy: frame-ancestors` directive. Other parent origins are
+blocked. This replaces the previous `X-Frame-Options: DENY` header; authentication,
+CSRF checks, and cookie settings are unchanged. The portfolio can display the
+public sign-in screen without requiring third-party session cookies.
+
+Deploy the updated backend before enabling the live thumbnail on the portfolio.
